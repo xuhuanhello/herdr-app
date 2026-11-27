@@ -801,8 +801,9 @@ What's about the user, never a look:
   version's notes, in the What's new window. Reading never clears the waiting-update dot.
   Rare spotlight releases open What’s new after restart, once; otherwise a
   quiet Updated pill lasts for that launch. A build from source never updates.
-  CI packages from the personal fork check its GitHub Releases for app updates;
-  the version includes `+fork.N`. Manage herdr-core separately for these packages.
+  CI packages from the personal fork check their App and Core GitHub Releases.
+  Settings offers separate update actions. The setup screen verifies the fork's
+  Core package and checks the running Core's version before connecting.
   Curated notes come from the bundled root `CHANGELOG.md`; remote notes and
   media are optional. `update-notes.json` records the last successful app
   version and presented spotlights; `update-notes-cache.md` caches remote

@@ -22,8 +22,9 @@ its terminals.
 
 `app.check_updates` checks for newer releases. Settings reports "Up to date"
 only after a successful check; on failure, check the connection and retry.
-The personal fork's CI packages check its GitHub Releases for app updates.
-`herdr-app --version` includes the fork's CI build number. Manage `hc` separately.
+The personal fork's CI packages check the App and Core forks' GitHub Releases.
+`herdr-app --version` includes the App's CI build number. Setup installs the
+fork's Core and Settings offers its updates separately.
 Package-managed cores are checked but updated through their package manager.
 Dismiss a core update error with its × or `overlay.close {id:"core-update-error"}`;
 it stays dismissed until the error changes or the update recovers.

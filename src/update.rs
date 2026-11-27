@@ -23,7 +23,7 @@ use std::time::Duration;
 const EVERY: Duration = Duration::from_secs(60 * 60);
 /// After a failed check or download (offline, a damaged file).
 const RETRY: Duration = Duration::from_secs(30 * 60);
-const FORK_RELEASES: Option<&str> = option_env!("HERDR_APP_FORK_RELEASES");
+pub(crate) const FORK_RELEASES: Option<&str> = option_env!("HERDR_APP_FORK_RELEASES");
 
 pub(crate) fn app_version() -> &'static str {
     option_env!("HERDR_APP_FORK_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
@@ -113,7 +113,7 @@ pub fn core() -> CoreInfo {
 pub fn set_core(version: Option<String>, managed: Option<String>) {
     let mut c = CORE.lock().unwrap();
     if let (Some(have), Some(ready)) = (&version, &c.ready)
-        && !newer(ready, have)
+        && !newer_core(ready, have)
     {
         c.ready = None;
     }
@@ -130,8 +130,9 @@ fn checks_app() -> Option<PathBuf> {
 
 /// A release build checks the core; a source build only when pointed at a test release server.
 fn checks_core() -> bool {
-    FORK_RELEASES.is_none()
-        && (option_env!("HERDR_APP_RELEASE").is_some() || std::env::var_os("HERDR_RELEASES_URL").is_some())
+    crate::fork_core::RELEASES.is_some()
+        || (FORK_RELEASES.is_none()
+            && (option_env!("HERDR_APP_RELEASE").is_some() || std::env::var_os("HERDR_RELEASES_URL").is_some()))
 }
 
 /// For the settings screen: both programs, what's waiting, when we last looked.
@@ -214,7 +215,7 @@ fn check_core() -> Result<(), String> {
     let Some(have) = have else { return Ok(()) };
     let latest = latest_core()?;
     let same = latest.generation == Some(crate::hc::GENERATION);
-    CORE.lock().unwrap().ready = (same && newer(&latest.version, &have)).then_some(latest.version);
+    CORE.lock().unwrap().ready = (same && newer_core(&latest.version, &have)).then_some(latest.version);
     Ok(())
 }
 
@@ -225,8 +226,21 @@ struct CoreRelease {
 }
 
 fn latest_core() -> Result<CoreRelease, String> {
+    if let Some(releases) = crate::fork_core::RELEASES {
+        let manifest = crate::fork_core::manifest(releases)?;
+        return Ok(CoreRelease { version: manifest.version, generation: Some(manifest.generation) });
+    }
     let text = curl_text(&format!("{}/core/latest.json", releases()))?;
     serde_json::from_str(&text).map_err(|e| format!("core/latest.json: {e}"))
+}
+
+fn newer_core(candidate: &str, running: &str) -> bool {
+    if crate::fork_core::RELEASES.is_some() {
+        matches!((crate::fork_core::build_number(candidate), crate::fork_core::build_number(running)),
+            (Some(a), Some(b)) if a > b)
+    } else {
+        newer(candidate, running)
+    }
 }
 
 fn after_update_target<'a>(have: &str, latest: Option<&'a CoreRelease>, generation: u64, core_min: &'a str) -> Option<&'a str> {
@@ -301,6 +315,12 @@ fn check_manifest(root: &Path, url: &str, upstream_notes: Option<&str>) -> Resul
     let (Some(url), Some(sha)) = (entry["url"].as_str(), entry["sha256"].as_str()) else {
         return Ok(None);
     };
+    if let Some(releases) = FORK_RELEASES
+        && let Some((_, build)) = version.split_once("+fork.")
+        && url != format!("{releases}/download/fork-{build}/herdr-app-{}.tar.gz", target())
+    {
+        return Err("unexpected App download URL in the fork manifest".into());
+    }
     tracing::info!("downloading Herdr {version}");
     let work = beside(root, ".download");
     let _ = std::fs::remove_dir_all(&work);
@@ -322,7 +342,7 @@ fn check_manifest(root: &Path, url: &str, upstream_notes: Option<&str>) -> Resul
 /// Downloads, checks and unpacks a release into `work`; returns the app inside.
 fn unpack(url: &str, sha: &str, work: &Path) -> Result<PathBuf, String> {
     let tarball = work.join("app.tar.gz");
-    run(crate::spawn::command(system("curl")).args(["-fsSL", "--max-time", "600", "-o"]).arg(&tarball).arg(url))?;
+    run(release_curl().args(["--max-time", "600", "-o"]).arg(&tarball).arg(url))?;
     let bytes = std::fs::read(&tarball).map_err(|e| e.to_string())?;
     if sha256(&bytes) != sha.to_ascii_lowercase() {
         return Err("the download is damaged (checksum mismatch)".into());
@@ -377,15 +397,24 @@ pub(crate) fn sha256(bytes: &[u8]) -> String {
     sha2::Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn curl_text(url: &str) -> Result<String, String> {
-    let out = crate::spawn::command(system("curl")).args(["-fsSL", "--max-time", "30", url]).stdin(Stdio::null()).output().map_err(|e| format!("curl: {e}"))?;
+pub(crate) fn release_curl() -> Command {
+    let mut curl = crate::spawn::command(system("curl"));
+    if FORK_RELEASES.is_some() || crate::fork_core::RELEASES.is_some() {
+        curl.args(["-q", "--proto", "=https", "--proto-redir", "=https"]);
+    }
+    curl.arg("-fsSL");
+    curl
+}
+
+pub(crate) fn curl_text(url: &str) -> Result<String, String> {
+    let out = release_curl().args(["--max-time", "30", url]).stdin(Stdio::null()).output().map_err(|e| format!("curl: {e}"))?;
     if !out.status.success() {
         return Err(format!("{url}: {}", String::from_utf8_lossy(&out.stderr).trim()));
     }
     String::from_utf8(out.stdout).map_err(|e| e.to_string())
 }
 
-fn run(cmd: &mut Command) -> Result<(), String> {
+pub(crate) fn run(cmd: &mut Command) -> Result<(), String> {
     let out = cmd.stdin(Stdio::null()).output().map_err(|e| format!("{:?}: {e}", cmd.get_program()))?;
     if out.status.success() {
         Ok(())
