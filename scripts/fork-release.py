@@ -1,4 +1,4 @@
-"""Publish both fork CI archives as a single GitHub Release."""
+"""Publish the fork CI archives and macOS disk image as a GitHub Release."""
 
 import hashlib
 import json
@@ -55,6 +55,8 @@ def publish():
         archive = dist / f"herdr-app-{target}.tar.gz"
         files[archive] = hashlib.sha256(archive.read_bytes()).hexdigest()
         targets[target] = {"url": f"{repo_url}/releases/download/{tag}/{archive.name}", "sha256": files[archive]}
+    dmg = dist / "Herdr.dmg"
+    files[dmg] = hashlib.sha256(dmg.read_bytes()).hexdigest()
     sums = dist / "SHA256SUMS"
     sums.write_text("".join(f"{sha}  {path.name}\n" for path, sha in files.items()), encoding="ascii")
     manifest = dist / "manifest.json"
@@ -69,6 +71,7 @@ def publish():
             "--title", f"Herdr personal fork {version}",
             "--notes", (
                 f"Windows x64 and macOS arm64 builds from [`{commit[:7]}`]({repo_url}/commit/{commit}). "
+                "Open Herdr.dmg to install the Mac app. "
                 f"[CI run]({build_url}) · [Installation notes]({repo_url}#personal-fork)"
             ),
         ))
