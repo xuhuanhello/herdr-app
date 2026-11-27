@@ -4,6 +4,8 @@
 #   scripts/package            -> dist/herdr-app-<os>-<arch>.tar.gz
 #   scripts/package <triple>   -> the same for another supported Rust target
 #   scripts/package --local [triple] -> package with source-build behavior
+# Fork CI uses --local with HERDR_APP_FORK_BUILD and HERDR_APP_FORK_RELEASES
+# to enable the fork's app updates without upstream reporting.
 #
 # Linux: a folder holding herdr-app and the icon.
 # macOS: Herdr.app, signed with APPLE_CERTIFICATE_P12 when available,
@@ -61,12 +63,32 @@ for notice in LICENSE THIRD-PARTY-NOTICES; do
   [[ -s $notice ]] || { echo "package: $notice is missing or empty" >&2; exit 1; }
 done
 # Release builds enable background updates and report delivery.
+unset HERDR_APP_FORK_VERSION
 if [[ $local_build == true ]]; then
   unset HERDR_APP_RELEASE
+  if [[ -n ${HERDR_APP_FORK_BUILD:-} || -n ${HERDR_APP_FORK_RELEASES:-} ]]; then
+    if [[ ! ${HERDR_APP_FORK_BUILD:-} =~ ^[1-9][0-9]*$ || -z ${HERDR_APP_FORK_RELEASES:-} ]]; then
+      echo "package: fork builds need a CI run number and a Releases URL" >&2
+      exit 1
+    fi
+    export HERDR_APP_FORK_VERSION="$version+fork.$HERDR_APP_FORK_BUILD"
+  else
+    unset HERDR_APP_FORK_RELEASES
+  fi
 else
+  unset HERDR_APP_FORK_RELEASES
   export HERDR_APP_RELEASE=1
 fi
 cargo build --release --locked ${triple:+--target "$triple"}
+
+if [[ -n ${HERDR_APP_FORK_VERSION:-} ]]; then
+  version_exe="$bin/herdr-app"
+  if [[ $os == windows ]]; then version_exe+=.exe; fi
+  if [[ $("$version_exe" --version) != "herdr-app $HERDR_APP_FORK_VERSION" ]]; then
+    echo "package: executable version does not match $HERDR_APP_FORK_VERSION" >&2
+    exit 1
+  fi
+fi
 
 if [[ $os == linux ]]; then export TMPDIR=${TMPDIR:-/var/tmp}; fi
 work=$(mktemp -d)

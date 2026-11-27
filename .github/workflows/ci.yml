@@ -32,6 +32,8 @@ env:
 
 jobs:
   platform-tests:
+    # The personal fork uses its two-platform build workflow.
+    if: github.repository != 'xuhuanhello/herdr-app'
     strategy:
       fail-fast: false
       matrix:
@@ -155,7 +157,7 @@ jobs:
   # Keep the required check name stable while requiring every platform.
   test:
     needs: platform-tests
-    if: always()
+    if: always() && github.repository != 'xuhuanhello/herdr-app'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

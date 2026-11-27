@@ -2,7 +2,21 @@
 
 Herdr is a desktop app for terminals and coding agents. Keep work in spaces, see which agents need you, and leave terminals running when you close the window.
 
+## Personal fork
+
+This is a personal fork of [herdrdev/herdr-app](https://github.com/herdrdev/herdr-app).
+The fork CI builds the desktop app for Windows x64 and macOS arm64 (Apple Silicon).
+Get the archives and `SHA256SUMS` from [this fork's Releases](https://github.com/xuhuanhello/herdr-app/releases).
+After changes reach this fork's `master`, CI publishes a new release when both packages pass.
+The `+fork.N` suffix is the CI run number and advances even when the upstream version stays the same.
+
+Extract the archive to get the `herdr-app` folder on Windows or `Herdr.app` on macOS.
+The desktop app needs [Herdr Core](https://github.com/herdrdev/herdr-core) (`hc`), which is installed separately.
+Install the first GitHub release manually if you are using an earlier fork build without automatic updates.
+
 ## Install
+
+The installation options below download the upstream release.
 
 ### Linux and macOS
 
@@ -91,11 +105,14 @@ Linux and Windows keep Ctrl+A for the shell; bind `terminal.select_all` in `keys
 
 ## Updates and privacy
 
-Installed releases check for updates in the background and download a new app beside the running one. It takes over when you quit and reopen, or choose the update action. Your terminals keep running in the core.
+The fork's CI packages check this repository's latest GitHub Release for app updates.
+They verify the new archive before offering a restart. Usage reporting is off, and app updates do not update Herdr Core.
+
+Upstream releases check for updates in the background and download a new app beside the running one. It takes over when you quit and reopen, or choose the update action. Your terminals keep running in the core.
 Settings → Updates shows what is available. What's New opens after an update; you can open it again from the command palette.
 Builds from source do not update themselves.
 
-Usage telemetry is on by default in releases. Turn it off in Settings → Privacy.
+Usage telemetry is on by default in upstream releases. Turn it off in Settings → Privacy.
 Mods are trusted code, not sandboxed extensions. Read [security and privacy](docs/security.md) before installing someone else's mod.
 
 ## For agents
