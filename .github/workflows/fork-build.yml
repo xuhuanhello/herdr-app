@@ -2,7 +2,7 @@ name: Build fork packages
 
 on:
   push:
-    branches: [master, codex/fork-build]
+    branches: [master, codex/fork-build, codex/fork-suite]
   workflow_dispatch:
 
 permissions:
@@ -58,6 +58,7 @@ jobs:
         env:
           HERDR_APP_FORK_BUILD: ${{ github.run_number }}
           HERDR_APP_FORK_RELEASES: ${{ github.server_url }}/${{ github.repository }}/releases
+          HERDR_APP_FORK_CORE_RELEASES: https://github.com/xuhuanhello/herdr-core/releases
         run: scripts/package --local
       - name: Test the updater on validation branches
         if: github.ref_name != github.event.repository.default_branch

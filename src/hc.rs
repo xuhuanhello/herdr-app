@@ -243,8 +243,8 @@ pub fn core_min() -> &'static str {
     include_str!("../distribution/core-version").trim()
 }
 
-fn semver(v: &str) -> (u64, u64, u64) {
-    let mut p = v.trim().trim_start_matches("hc ").split(['.', '-']).map(|n| n.parse::<u64>().unwrap_or(0));
+pub(crate) fn semver(v: &str) -> (u64, u64, u64) {
+    let mut p = v.trim().trim_start_matches("hc ").split(['.', '-', '+']).map(|n| n.parse::<u64>().unwrap_or(0));
     (p.next().unwrap_or(0), p.next().unwrap_or(0), p.next().unwrap_or(0))
 }
 
@@ -327,7 +327,11 @@ fn connect_error(stderr: &str) -> Option<ConnectError> {
 impl Core {
     /// Connects to the user's core (starting it if needed) and switches to framed mode.
     pub fn connect() -> Result<Arc<Core>> {
-        let mut child = crate::spawn::command(crate::core_bin::path())
+        let bin = crate::core_bin::path();
+        if crate::fork_core::RELEASES.is_some() && crate::core_bin::usable_version(&bin).is_none() {
+            bail!(ConnectError("Install the Core from this fork to connect.".into()));
+        }
+        let mut child = crate::spawn::command(bin)
             .arg("connect")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -366,6 +370,12 @@ impl Core {
         if let Some(err) = hello.get("error") {
             bail!("core refused hello: {err}");
         }
+        let hello = hello.get("result").cloned().unwrap_or(Value::Null);
+        if !crate::fork_core::accepts(hello["version"].as_str().unwrap_or_default()) {
+            let _ = child.kill();
+            let _ = child.wait();
+            bail!(ConnectError("A Core from another channel is running. Retry after that Core exits.".into()));
+        }
 
         let (writer, frames) = mpsc::channel::<Vec<u8>>();
         std::thread::Builder::new().name("hc-writer".into()).spawn(move || {
@@ -379,7 +389,7 @@ impl Core {
         let routes = Arc::new(Mutex::new(Routes::default()));
         let (lost_tx, lost) = async_channel::bounded::<()>(1);
         let core = Arc::new(Core {
-            hello: hello.get("result").cloned().unwrap_or(Value::Null),
+            hello,
             writer,
             routes: routes.clone(),
             next_id: AtomicU64::new(1),
