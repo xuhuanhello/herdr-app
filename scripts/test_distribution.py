@@ -11,6 +11,7 @@ from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -281,6 +282,16 @@ printf 'dev PATH added' >> "$3"''')
                 self.assertEqual(result.returncode, 97)
                 self.assertIn("unexpected build", result.stderr)
                 self.assertNotIn("Intel Macs", result.stderr)
+
+    def test_local_package_disables_release_mode(self):
+        self.stub("cargo", 'printf "release=%s\\n" "${HERDR_APP_RELEASE-unset}"; printf "%s\\n" "$@"; exit 97')
+        with patch.dict(os.environ, {"HERDR_APP_RELEASE": "1"}):
+            for flags, mode in (((), "1"), (("--local",), "unset")):
+                with self.subTest(flags=flags):
+                    result = self.run_script("scripts/package", "Darwin", "arm64", *flags, "aarch64-apple-darwin")
+                    self.assertEqual(result.returncode, 97, result.stderr)
+                    self.assertIn(f"release={mode}\n", result.stdout)
+                    self.assertIn("--target\naarch64-apple-darwin\n", result.stdout)
 
 
 if __name__ == "__main__":
