@@ -60,6 +60,8 @@ env:
 
 jobs:
   build:
+    # The personal fork publishes its own GitHub Releases.
+    if: github.repository != 'xuhuanhello/herdr-app'
     strategy:
       fail-fast: true
       matrix:

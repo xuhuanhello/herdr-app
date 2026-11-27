@@ -74,20 +74,26 @@ struct Launch {
     changed: bool,
 }
 
+fn base_version(version: &str) -> &str {
+    version.split_once("+fork.").map_or(version, |(base, _)| base)
+}
+
 impl Launch {
     fn new(mut record: Record, running: &str, first_install: bool) -> Self {
         let previous = record.last_run.clone();
-        let changed = !first_install && previous.as_deref().is_none_or(|v| crate::update::newer(running, v));
+        let changed = !first_install && previous.as_deref().is_none_or(|v| crate::update::newer_app(running, v));
         record.last_run = Some(running.into());
         Self { record, previous, running: running.into(), changed }
     }
 
     fn range(&self, notes: &[Note], target: Option<&str>) -> Vec<Note> {
+        let running = base_version(&self.running);
+        let previous = self.previous.as_deref().map(base_version);
         let (lower, upper) = match target {
-            Some(target) => (Some(self.running.as_str()), target),
-            None if self.previous.as_deref().is_some_and(|v| crate::update::newer(v, &self.running)) => return Vec::new(),
+            Some(target) => (Some(running), base_version(target)),
+            None if previous.is_some_and(|v| crate::update::newer(v, running)) => return Vec::new(),
             // Since the last version that ran; with nothing new, this version's own notes.
-            None => (self.previous.as_deref().filter(|v| crate::update::newer(&self.running, v)), self.running.as_str()),
+            None => (previous.filter(|v| crate::update::newer(running, v)), running),
         };
         notes.iter().filter(|n| {
             !crate::update::newer(&n.version, upper)
@@ -122,7 +128,7 @@ pub fn started(first_install: bool) {
     let mut launch = LAUNCH.lock().unwrap();
     if launch.is_some() { return; }
     let record = std::fs::read(path("update-notes.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
-    let state = Launch::new(record, env!("CARGO_PKG_VERSION"), first_install);
+    let state = Launch::new(record, crate::update::app_version(), first_install);
     save(&state.record);
     *launch = Some(state);
     std::thread::spawn(|| fetch_media(&all()));

@@ -791,7 +791,7 @@ What's about the user, never a look:
 - Updates: an installed app downloads them by itself and offers Restart and
   What changed. If the app crashes or is killed with a verified newer update
   waiting, the next launch installs it before opening a window. The first
-  start after an app update also updates herdr-core
+  start after an upstream app update also updates herdr-core
   to the latest release of the same generation, keeping terminals running.
   Package-managed cores stay with their package manager; Settings shows available releases.
   A core update error can be dismissed with its × or `overlay.close {id:"core-update-error"}`
@@ -801,6 +801,8 @@ What's about the user, never a look:
   version's notes, in the What's new window. Reading never clears the waiting-update dot.
   Rare spotlight releases open What’s new after restart, once; otherwise a
   quiet Updated pill lasts for that launch. A build from source never updates.
+  CI packages from the personal fork check its GitHub Releases for app updates;
+  the version includes `+fork.N`. Manage herdr-core separately for these packages.
   Curated notes come from the bundled root `CHANGELOG.md`; remote notes and
   media are optional. `update-notes.json` records the last successful app
   version and presented spotlights; `update-notes-cache.md` caches remote

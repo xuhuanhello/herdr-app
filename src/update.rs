@@ -6,9 +6,9 @@
 //! quit, or before opening the next window after a crash. The first start
 //! after a swap runs `hc update` for the core.
 //!
-//! A build from source never updates: only `scripts/package` (the release
-//! builds) sets `HERDR_APP_RELEASE`. `scripts/install-macos` makes a
-//! Herdr.app too, so the install's shape alone can't tell.
+//! Packages opt into updates at build time. Upstream uses
+//! `HERDR_APP_RELEASE`. The fork's CI sets an app-only GitHub Releases
+//! endpoint and a version with a CI run number.
 //!
 //! The core is checked on the same clock (`core/latest.json`): a newer core
 //! of the same generation is offered (also applied after an app update), unless
@@ -23,6 +23,11 @@ use std::time::Duration;
 const EVERY: Duration = Duration::from_secs(60 * 60);
 /// After a failed check or download (offline, a damaged file).
 const RETRY: Duration = Duration::from_secs(30 * 60);
+const FORK_RELEASES: Option<&str> = option_env!("HERDR_APP_FORK_RELEASES");
+
+pub(crate) fn app_version() -> &'static str {
+    option_env!("HERDR_APP_FORK_VERSION").unwrap_or(env!("CARGO_PKG_VERSION"))
+}
 
 /// Where this app is installed: the folder (Linux) or bundle (macOS) an
 /// update replaces. Read once: after a swap this process's own file is gone.
@@ -120,18 +125,19 @@ pub fn set_core(version: Option<String>, managed: Option<String>) {
 }
 
 fn checks_app() -> Option<PathBuf> {
-    root().filter(|_| option_env!("HERDR_APP_RELEASE").is_some() || std::env::var_os("HERDR_RELEASES_URL").is_some())
+    root().filter(|_| FORK_RELEASES.is_some() || checks_core())
 }
 
 /// A release build checks the core; a source build only when pointed at a test release server.
 fn checks_core() -> bool {
-    option_env!("HERDR_APP_RELEASE").is_some() || std::env::var_os("HERDR_RELEASES_URL").is_some()
+    FORK_RELEASES.is_none()
+        && (option_env!("HERDR_APP_RELEASE").is_some() || std::env::var_os("HERDR_RELEASES_URL").is_some())
 }
 
 /// For the settings screen: both programs, what's waiting, when we last looked.
 pub fn status() -> serde_json::Value {
     serde_json::json!({
-        "app": { "version": env!("CARGO_PKG_VERSION"), "ready": ready(), "updates": checks_app().is_some() },
+        "app": { "version": app_version(), "ready": ready(), "updates": checks_app().is_some() },
         "notes": crate::update_notes::notes(ready().as_deref()),
         "core": core(),
         "checked": *CHECKED.lock().unwrap(),
@@ -263,19 +269,26 @@ pub fn update_core() {
 
 /// Downloads the latest release if it's newer. Ok(Some): a version is ready.
 fn check(root: &Path) -> Result<Option<String>, String> {
+    if let Some(releases) = FORK_RELEASES {
+        return check_manifest(root, &format!("{releases}/latest/download/manifest.json"), None);
+    }
     check_from(root, &releases())
 }
 
 fn check_from(root: &Path, releases: &str) -> Result<Option<String>, String> {
-    let path = "app/latest.json";
-    let text = curl_text(&format!("{releases}/{path}"))?;
-    let manifest: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("{path}: {e}"))?;
-    let version = manifest["version"].as_str().ok_or(format!("{path}: no version"))?;
-    if !newer(version, env!("CARGO_PKG_VERSION")) {
+    check_manifest(root, &format!("{releases}/app/latest.json"), Some(releases))
+}
+
+fn check_manifest(root: &Path, url: &str, upstream_notes: Option<&str>) -> Result<Option<String>, String> {
+    let text = curl_text(url)?;
+    let manifest: serde_json::Value = serde_json::from_str(&text).map_err(|e| format!("{url}: {e}"))?;
+    let version = manifest["version"].as_str().ok_or_else(|| format!("{url}: no version"))?;
+    if !newer_app(version, app_version()) {
         return Ok(None);
     }
     // Notes are optional: a missing feed must never hold up the update.
-    if !crate::update_notes::has(version)
+    if let Some(releases) = upstream_notes
+        && !crate::update_notes::has(version)
         && let Ok(text) = curl_text(&format!("{releases}/app/{version}/changelog.md"))
     {
         crate::update_notes::cache(&text);
@@ -416,6 +429,17 @@ pub(crate) fn newer(a: &str, b: &str) -> bool {
     }
 }
 
+/// Fork packages update by CI run number, even with an unchanged Cargo version.
+pub(crate) fn newer_app(candidate: &str, running: &str) -> bool {
+    match (candidate.split_once("+fork."), running.split_once("+fork.")) {
+        (None, None) => newer(candidate, running),
+        (Some((_, candidate)), Some((_, running))) => {
+            matches!((candidate.parse::<u64>(), running.parse::<u64>()), (Ok(a), Ok(b)) if a > b)
+        }
+        _ => false,
+    }
+}
+
 /// A receipt is published only after the archive and its executable were verified.
 /// Legacy stages without one are left for the normal checker to download again.
 fn staged_version(root: &Path) -> Option<String> {
@@ -437,7 +461,7 @@ fn startup_target<'a>(running: &str, staged: Option<&'a str>, relaunched: Option
     if relaunched.is_some() {
         return None;
     }
-    staged.filter(|version| newer(version, running))
+    staged.filter(|version| newer_app(version, running))
 }
 
 /// Windows can't rename a folder that is a process's working directory, and a
@@ -464,14 +488,14 @@ pub fn apply_on_startup() -> bool {
         // SAFETY: startup runs before any app threads. Do not leak the guard
         // into the core's environment and every terminal it later starts.
         unsafe { std::env::remove_var("HERDR_APP_UPDATE_EXPECTED") };
-        if expected != env!("CARGO_PKG_VERSION") {
-            tracing::warn!("update: relaunched as {}, expected {expected}; not retrying", env!("CARGO_PKG_VERSION"));
+        if expected != app_version() {
+            tracing::warn!("update: relaunched as {}, expected {expected}; not retrying", app_version());
         }
         return false;
     }
     let Some(root) = checks_app() else { return false };
     let staged = staged_version(&root);
-    let Some(version) = startup_target(env!("CARGO_PKG_VERSION"), staged.as_deref(), expected.as_deref()) else { return false };
+    let Some(version) = startup_target(app_version(), staged.as_deref(), expected.as_deref()) else { return false };
     if swap(&root).is_err() {
         return false;
     }
@@ -485,7 +509,7 @@ pub fn apply_on_startup() -> bool {
 pub fn apply() -> std::io::Result<bool> {
     let Some(root) = root() else { return Ok(false) };
     let staged = staged_version(&root);
-    if ready().as_deref() != staged.as_deref() || !staged.as_deref().is_some_and(|version| newer(version, env!("CARGO_PKG_VERSION"))) {
+    if ready().as_deref() != staged.as_deref() || !staged.as_deref().is_some_and(|version| newer_app(version, app_version())) {
         return Ok(false);
     }
     swap(&root).map(|()| true)
@@ -578,9 +602,9 @@ fn relaunch_expected(expected: Option<&str>) -> bool {
     }
 }
 
-/// Left by `apply`: the next start brings the core up to date too.
+/// Left by the swap so the next start can finish the update.
 fn marker() -> PathBuf {
-    crate::mods::app_dir().join(".updated")
+    crate::mods::app_dir().join(if FORK_RELEASES.is_some() { ".fork-updated" } else { ".updated" })
 }
 
 /// The first start after an app update brings the core to the latest release
@@ -590,6 +614,12 @@ fn marker() -> PathBuf {
 /// path. A core a package manager owns is left alone.
 pub fn after_update(connected: std::sync::Arc<crate::hc::Core>) {
     if std::fs::remove_file(marker()).is_err() {
+        return;
+    }
+    if FORK_RELEASES.is_some() {
+        if let Some(root) = root() {
+            let _ = std::fs::remove_dir_all(beside(&root, ".old"));
+        }
         return;
     }
     std::thread::spawn(move || {
@@ -722,6 +752,16 @@ mod tests {
         for expected in ["0.1.7", "0.1.8", "0.1.9"] {
             assert_eq!(startup_target("0.1.7", Some("0.1.8"), Some(expected)), None);
         }
+    }
+
+    #[test]
+    fn fork_updates_follow_ci_run_numbers_within_the_fork() {
+        assert_eq!(startup_target("0.1.18+fork.9", Some("0.1.18+fork.10"), None), Some("0.1.18+fork.10"));
+        assert_eq!(startup_target("0.1.18+fork.10", Some("0.1.19+fork.9"), None), None);
+        assert_eq!(startup_target("0.1.18+fork.10", Some("0.1.19+fork.10"), None), None);
+        assert_eq!(startup_target("0.1.18+fork.10", Some("0.1.19+fork.invalid"), None), None);
+        assert_eq!(startup_target("0.1.18+fork.10", Some("0.1.19"), None), None);
+        assert_eq!(startup_target("0.1.18", Some("0.1.19+fork.11"), None), None);
     }
 
     #[cfg(unix)]
