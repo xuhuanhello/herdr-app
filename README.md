@@ -6,11 +6,15 @@ Herdr is a desktop app for terminals and coding agents. Keep work in spaces, see
 
 This is a personal fork of [herdrdev/herdr-app](https://github.com/herdrdev/herdr-app).
 The fork CI builds the desktop app for Windows x64 and macOS arm64 (Apple Silicon).
-Get the archives and `SHA256SUMS` from [this fork's Releases](https://github.com/xuhuanhello/herdr-app/releases).
+Get the packages and checksum files from [this fork's Releases](https://github.com/xuhuanhello/herdr-app/releases).
 After changes reach this fork's `master`, CI publishes a new release when both packages pass.
 The `+fork.N` suffix is the CI run number and advances even when the upstream version stays the same.
 
-Extract the archive to get the `herdr-app` folder on Windows or `Herdr.app` on macOS.
+On Windows, extract the archive to get the `herdr-app` folder.
+On an Apple Silicon Mac, open `Herdr.dmg` and drag `Herdr.app` to Applications.
+The Mac app has an ad hoc signature. If Gatekeeper blocks the first launch, verify the download and follow [Apple's Open Anyway instructions](https://support.apple.com/en-us/102445).
+The macOS `.tar.gz` is used by the built-in updater.
+
 The desktop app uses [this fork's Herdr Core](https://github.com/xuhuanhello/herdr-core/releases) (`hc`).
 Choose **Install it for me** in the setup window to download and verify the compatible Core package. The fork installs its Core in a separate directory and checks the running Core's version before connecting.
 If another Core is running, retry after that Core exits. The installer keeps the existing terminal data in place.

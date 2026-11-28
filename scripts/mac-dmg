@@ -1,20 +1,27 @@
 #!/bin/bash
-# A notarized download, independent of the tarballs used by app updates.
-# Requires create-dmg (brew install create-dmg), jq, and Apple's command line tools.
-# Uses the same APPLE_CERTIFICATE_* and APPLE_API_* secrets as mac-sign/notary-test.
+# A drag-and-drop download, independent of the tarballs used by app updates.
+# --local uses hdiutil to package an ad hoc signed build without notarization.
+# The notarized mode requires create-dmg, jq, and the mac-sign/notary-test secrets.
 set -euo pipefail
 
-app=${1:?usage: mac-dmg signed-Herdr.app output.dmg}
-out=${2:?usage: mac-dmg signed-Herdr.app output.dmg}
+local_image=false
+if [[ ${1:-} == --local ]]; then
+  local_image=true
+  shift
+fi
+app=${1:?usage: mac-dmg [--local] signed-Herdr.app output.dmg}
+out=${2:?usage: mac-dmg [--local] signed-Herdr.app output.dmg}
 [[ $(uname -s) == Darwin ]] || { echo 'mac-dmg requires macOS' >&2; exit 1; }
 [[ $(basename "$app") == Herdr.app && -d $app ]] || { echo 'expected a signed Herdr.app' >&2; exit 1; }
 [[ $out == *.dmg && ! -e $out ]] || { echo 'output must be a new .dmg file' >&2; exit 1; }
-: "${APPLE_CERTIFICATE_P12:?missing certificate}"
-: "${APPLE_CERTIFICATE_PASSWORD:?missing certificate password}"
-: "${APPLE_API_KEY:?missing notary API private key}"
-: "${APPLE_API_KEY_ID:?missing notary API key ID}"
-: "${APPLE_API_ISSUER:?missing notary API issuer}"
-for tool in create-dmg jq tiffutil xcrun; do command -v "$tool" >/dev/null; done
+if [[ $local_image == false ]]; then
+  : "${APPLE_CERTIFICATE_P12:?missing certificate}"
+  : "${APPLE_CERTIFICATE_PASSWORD:?missing certificate password}"
+  : "${APPLE_API_KEY:?missing notary API private key}"
+  : "${APPLE_API_KEY_ID:?missing notary API key ID}"
+  : "${APPLE_API_ISSUER:?missing notary API issuer}"
+  for tool in create-dmg jq tiffutil xcrun; do command -v "$tool" >/dev/null; done
+fi
 root=$(cd "$(dirname "$0")/.." && pwd)
 umask 077
 work=$(mktemp -d "${TMPDIR:-/tmp}/herdr-dmg.XXXXXX")
@@ -26,6 +33,10 @@ build_seconds=0
 notary_seconds=0
 finish() {
   result=$?
+  if [[ $local_image == true ]]; then
+    rm -rf "$work"
+    return
+  fi
   # create-dmg normally detaches itself, but may fail before reaching that step.
   while IFS= read -r device; do
     hdiutil detach "$device" || true
@@ -46,10 +57,21 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 codesign --verify --deep --strict "$app"
-signature=$(codesign -dvv "$app" 2>&1)
-[[ $signature == *"Authority=Developer ID Application:"* ]] || { echo 'DMG requires a Developer ID signed app' >&2; exit 1; }
+if [[ $local_image == false ]]; then
+  signature=$(codesign -dvv "$app" 2>&1)
+  [[ $signature == *"Authority=Developer ID Application:"* ]] || { echo 'DMG requires a Developer ID signed app' >&2; exit 1; }
+fi
 mkdir "$work/source"
 ditto "$app" "$work/source/Herdr.app"
+if [[ $local_image == true ]]; then
+  ln -s /Applications "$work/source/Applications"
+  hdiutil create -quiet -fs HFS+ -format UDZO -volname Herdr -srcfolder "$work/source" "$work/Herdr.dmg"
+  hdiutil verify -quiet "$work/Herdr.dmg"
+  mkdir -p "$(dirname "$out")"
+  mv "$work/Herdr.dmg" "$out"
+  echo "mac-dmg: $out"
+  exit 0
+fi
 tiffutil -cathidpicheck "$root/distribution/macos/dmg/background.png" \
   "$root/distribution/macos/dmg/background@2x.png" -out "$work/background.tiff"
 # create-dmg handles Finder's layout on macOS CI runners too. Do not use
