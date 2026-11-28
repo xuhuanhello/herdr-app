@@ -147,8 +147,13 @@ impl Setup {
             let Ok(Ok(Some(paths))) = paths.await else { return };
             let Some(bin) = paths.into_iter().next() else { return };
             let _ = this.update_in(cx, |this, window, cx| {
-                if crate::core_bin::version(&bin).is_none() {
-                    this.state = State::Failed(format!("{} isn't herdr-core (it should answer `--version` with `hc …`)", bin.display()));
+                if crate::core_bin::usable_version(&bin).is_none() {
+                    let message = if let Some(releases) = crate::fork_core::RELEASES {
+                        format!("Choose a compatible Core from {releases}.")
+                    } else {
+                        format!("{} isn't herdr-core (it should answer `--version` with `hc …`)", bin.display())
+                    };
+                    this.state = State::Failed(message);
                     cx.notify();
                     return;
                 }
@@ -169,7 +174,11 @@ impl Setup {
             Need::Install => (
                 "Herdr needs herdr-core".into(),
                 "herdr-core runs your terminals and agents, and keeps them alive when this window closes. Herdr couldn't find it on this computer.".into(),
-                format!("Install it for me puts it in {CORE_PLACE} (with hc), like its own installer: {CORE_INSTALL}"),
+                if let Some(releases) = crate::fork_core::RELEASES {
+                    format!("Install it for me downloads a verified Core from {releases}.")
+                } else {
+                    format!("Install it for me puts it in {CORE_PLACE} (with hc), like its own installer: {CORE_INSTALL}")
+                },
             ),
             Need::Connect(error) => (
                 "Herdr can't connect to herdr-core".into(),
@@ -189,7 +198,11 @@ impl Setup {
             Need::Fix(Mismatch::Newer { generation }) => (
                 "This Herdr is older than your herdr-core".into(),
                 format!("Your herdr-core speaks a newer protocol (generation {generation}) than this Herdr understands. Update Herdr; your terminals keep running."),
-                format!("Update Herdr: {APP_INSTALL}"),
+                if let Some(releases) = crate::update::FORK_RELEASES {
+                    format!("Download a newer Herdr from {releases}.")
+                } else {
+                    format!("Update Herdr: {APP_INSTALL}")
+                },
             ),
         }
     }

@@ -14,7 +14,10 @@ On Windows, extract the archive to get the `herdr-app` folder.
 On an Apple Silicon Mac, open `Herdr.dmg` and drag `Herdr.app` to Applications.
 The Mac app has an ad hoc signature. If Gatekeeper blocks the first launch, verify the download and follow [Apple's Open Anyway instructions](https://support.apple.com/en-us/102445).
 The macOS `.tar.gz` is used by the built-in updater.
-The desktop app needs [Herdr Core](https://github.com/herdrdev/herdr-core) (`hc`), which is installed separately.
+
+The desktop app uses [this fork's Herdr Core](https://github.com/xuhuanhello/herdr-core/releases) (`hc`).
+Choose **Install it for me** in the setup window to download and verify the compatible Core package. The fork installs its Core in a separate directory and checks the running Core's version before connecting.
+If another Core is running, retry after that Core exits. The installer keeps the existing terminal data in place.
 Install the first GitHub release manually if you are using an earlier fork build without automatic updates.
 
 ## Install
@@ -108,8 +111,8 @@ Linux and Windows keep Ctrl+A for the shell; bind `terminal.select_all` in `keys
 
 ## Updates and privacy
 
-The fork's CI packages check this repository's latest GitHub Release for app updates.
-They verify the new archive before offering a restart. Usage reporting is off, and app updates do not update Herdr Core.
+The fork checks this repository's GitHub Releases for App updates and the Core fork's GitHub Releases for Core updates.
+It verifies packages before updating. Settings offers Core updates separately from the App restart. Usage reporting is off by default.
 
 Upstream releases check for updates in the background and download a new app beside the running one. It takes over when you quit and reopen, or choose the update action. Your terminals keep running in the core.
 Settings → Updates shows what is available. What's New opens after an update; you can open it again from the command palette.

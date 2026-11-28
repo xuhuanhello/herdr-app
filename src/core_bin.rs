@@ -113,12 +113,19 @@ pub fn version(bin: &Path) -> Option<String> {
     (out.status.success() && text.starts_with("hc ")).then_some(text)
 }
 
+pub fn usable_version(bin: &Path) -> Option<String> {
+    version(bin).filter(|version| crate::fork_core::accepts(version))
+}
+
 /// The first herdr-core found, or None.
 pub fn find(configured: Option<&str>) -> Option<PathBuf> {
     let home = crate::mods::home();
-    let pick = |candidates: Vec<PathBuf>| candidates.into_iter().filter(|c| c.is_file()).find(|c| version(c).is_some());
+    let pick = |candidates: Vec<PathBuf>| candidates.into_iter().filter(|c| c.is_file()).find(|c| usable_version(c).is_some());
     if let Some(found) = pick(configured.map(|c| vec![expand(c, &home)]).unwrap_or_default()) {
         return Some(found);
+    }
+    if crate::fork_core::RELEASES.is_some() {
+        return pick(vec![crate::fork_core::executable(&crate::fork_core::directory(&home))]);
     }
     // Tests: HERDR_CORE_DIRS replaces every place Herdr would look.
     if let Some(dirs) = std::env::var_os("HERDR_CORE_DIRS") {
@@ -211,6 +218,9 @@ fn login_path_answer(out: &str) -> Option<std::ffi::OsString> {
 /// Installs the core's latest release with its own installer (into
 /// ~/.local/bin, or HC_INSTALL_DIR), then finds it. Err: what went wrong.
 pub fn install() -> Result<PathBuf, String> {
+    if let Some(releases) = crate::fork_core::RELEASES {
+        return crate::fork_core::install(releases, &crate::fork_core::directory(&crate::mods::home()));
+    }
     let releases = std::env::var("HERDR_RELEASES_URL").unwrap_or_else(|_| "https://releases.herdr.dev".into());
     let mut cmd = if cfg!(windows) {
         let mut c = crate::spawn::command("powershell");
@@ -247,7 +257,11 @@ pub fn update() -> Result<String, String> {
 
 /// `hc update --version X`: at least X (a newer core stays). Cores before 0.1.5 lack it.
 pub fn update_to(at_least: Option<&str>) -> Result<String, String> {
-    let mut cmd = crate::spawn::command(path());
+    let bin = path();
+    if crate::fork_core::RELEASES.is_some() && usable_version(&bin).is_none() {
+        return Err("Select or install the Core from your fork before updating.".into());
+    }
+    let mut cmd = crate::spawn::command(bin);
     cmd.args(["update", "--json"]);
     if let Some(v) = at_least {
         cmd.args(["--version", v]);
@@ -257,7 +271,9 @@ pub fn update_to(at_least: Option<&str>) -> Result<String, String> {
     if out.status.success() {
         let now = reply.get("now").and_then(|v| v.as_str()).unwrap_or("the latest").to_owned();
         #[cfg(target_os = "macos")]
-        ensure_core_bundle(&now)?;
+        if crate::fork_core::RELEASES.is_none() {
+            ensure_core_bundle(&now)?;
+        }
         return Ok(now);
     }
     let err: serde_json::Value = serde_json::from_slice(&out.stderr).unwrap_or_default();
